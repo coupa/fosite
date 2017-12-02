@@ -56,24 +56,47 @@ func (f *Fosite) NewAccessRequest(ctx context.Context, r *http.Request, session 
 	}
 
 	// Decode client_id and client_secret which should be in "application/x-www-form-urlencoded" format.
-	var clientID, clientSecret string
-	if id, secret, ok := r.BasicAuth(); !ok {
+	var escapedClientID, escapedClientSecret string
+	originalID, originalSecret, ok := r.BasicAuth()
+	if !ok {
 		return accessRequest, errors.Wrap(ErrInvalidRequest, "HTTP authorization header missing or invalid")
-	} else if clientID, err = url.QueryUnescape(id); err != nil {
-		return accessRequest, errors.Wrap(ErrInvalidRequest, `The client id in the HTTP authorization header could not be decoded from "application/x-www-form-urlencoded"`)
-	} else if clientSecret, err = url.QueryUnescape(secret); err != nil {
-		return accessRequest, errors.Wrap(ErrInvalidRequest, `The client secret in the HTTP authorization header could not be decoded from "application/x-www-form-urlencoded"`)
 	}
+	escapedClientID, _ = url.QueryUnescape(originalID)
+	escapedClientSecret, _ = url.QueryUnescape(originalSecret)
 
-	client, err := f.Store.GetClient(ctx, clientID)
-	if err != nil {
-		return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+	var client Client
+	if escapedClientID != "" {
+		if client, err = f.Store.GetClient(ctx, escapedClientID); err != nil {
+			if escapedClientID != originalID {
+				if client, err = f.Store.GetClient(ctx, originalID); err != nil {
+					return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+				}
+			} else {
+				return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+			}
+		}
+	} else {
+		if client, err = f.Store.GetClient(ctx, originalID); err != nil {
+			return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+		}
 	}
 
 	if !client.IsPublic() {
 		// Enforce client authentication
-		if err := f.Hasher.Compare(client.GetHashedSecret(), []byte(clientSecret)); err != nil {
-			return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+		if escapedClientSecret != "" {
+			if err := f.Hasher.Compare(client.GetHashedSecret(), []byte(escapedClientSecret)); err != nil {
+				if escapedClientSecret != originalSecret {
+					if err = f.Hasher.Compare(client.GetHashedSecret(), []byte(originalSecret)); err != nil {
+						return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+					}
+				} else {
+					return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+				}
+			}
+		} else {
+			if err = f.Hasher.Compare(client.GetHashedSecret(), []byte(originalSecret)); err != nil {
+				return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
+			}
 		}
 	}
 	accessRequest.Client = client
