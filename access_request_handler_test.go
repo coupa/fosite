@@ -172,6 +172,110 @@ func TestNewAccessRequest(t *testing.T) {
 				},
 			},
 		},
+		{
+			//Test an URL escaped client id in basic auth
+			header: http.Header{
+				"Authorization": {basicAuth("f+oo", "bar")},
+			},
+			method: "POST",
+			form: url.Values{
+				"grant_type": {"foo"},
+			},
+			mock: func() {
+				store.EXPECT().GetClient(gomock.Any(), gomock.Eq("f oo")).Return(client, nil)
+				client.EXPECT().IsPublic().Return(false)
+				client.EXPECT().GetHashedSecret().Return([]byte("bar"))
+				hasher.EXPECT().Compare(gomock.Eq([]byte("bar")), gomock.Eq([]byte("bar"))).Return(nil)
+				handler.EXPECT().HandleTokenEndpointRequest(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			handlers: TokenEndpointHandlers{handler},
+			expect: &AccessRequest{
+				GrantTypes: Arguments{"foo"},
+				Request: Request{
+					Client: client,
+				},
+			},
+		},
+		{
+			//Test an non-URL escaped secret in basic auth. The secret literally has a
+			//"+" sign, so when it is url unescaped, it becomes " " and the original
+			//comparison will fail. Then because the before and after url unescaped strings
+			//are different, it will enter the second comparison with the original secret.
+			header: http.Header{
+				"Authorization": {basicAuth("f+oo", "bar")},
+			},
+			method: "POST",
+			form: url.Values{
+				"grant_type": {"f+oo"},
+			},
+			mock: func() {
+				firstCall := store.EXPECT().GetClient(gomock.Any(), gomock.Eq("f oo")).Return(client, errors.New("not found"))
+				store.EXPECT().GetClient(gomock.Any(), gomock.Eq("f+oo")).Return(client, nil).After(firstCall)
+				client.EXPECT().IsPublic().Return(false)
+				client.EXPECT().GetHashedSecret().Return([]byte("bar"))
+				hasher.EXPECT().Compare(gomock.Eq([]byte("bar")), gomock.Eq([]byte("bar"))).Return(nil)
+				handler.EXPECT().HandleTokenEndpointRequest(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			handlers: TokenEndpointHandlers{handler},
+			expect: &AccessRequest{
+				GrantTypes: Arguments{"f+oo"},
+				Request: Request{
+					Client: client,
+				},
+			},
+		},
+		{
+			//Test an URL escaped secret in basic auth
+			header: http.Header{
+				"Authorization": {basicAuth("foo", "+bar")},
+			},
+			method: "POST",
+			form: url.Values{
+				"grant_type": {"foo"},
+			},
+			mock: func() {
+				store.EXPECT().GetClient(gomock.Any(), gomock.Eq("foo")).Return(client, nil)
+				client.EXPECT().IsPublic().Return(false)
+				client.EXPECT().GetHashedSecret().Return([]byte(" bar"))
+				hasher.EXPECT().Compare(gomock.Eq([]byte(" bar")), gomock.Eq([]byte(" bar"))).Return(nil)
+				handler.EXPECT().HandleTokenEndpointRequest(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			handlers: TokenEndpointHandlers{handler},
+			expect: &AccessRequest{
+				GrantTypes: Arguments{"foo"},
+				Request: Request{
+					Client: client,
+				},
+			},
+		},
+		{
+			//Test an non-URL escaped secret in basic auth. The secret literally has a
+			//"+" sign, so when it is url unescaped, it becomes " " and the original
+			//comparison will fail. Then because the before and after url unescaped strings
+			//are different, it will enter the second comparison with the original secret.
+			header: http.Header{
+				"Authorization": {basicAuth("foo", "+bar")},
+			},
+			method: "POST",
+			form: url.Values{
+				"grant_type": {"foo"},
+			},
+			mock: func() {
+				store.EXPECT().GetClient(gomock.Any(), gomock.Eq("foo")).Return(client, nil)
+				client.EXPECT().IsPublic().Return(false)
+				client.EXPECT().GetHashedSecret().Return([]byte("+bar")).AnyTimes()
+				firstCall := hasher.EXPECT().Compare(gomock.Eq([]byte("+bar")), gomock.Eq([]byte(" bar"))).Return(errors.New("hi"))
+				hasher.EXPECT().Compare(gomock.Eq([]byte("+bar")), gomock.Eq([]byte("+bar"))).Return(nil).After(firstCall)
+				handler.EXPECT().HandleTokenEndpointRequest(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			handlers: TokenEndpointHandlers{handler},
+			expect: &AccessRequest{
+				GrantTypes: Arguments{"foo"},
+				Request: Request{
+					Client: client,
+				},
+			},
+		},
 	} {
 		r := &http.Request{
 			Header:   c.header,
