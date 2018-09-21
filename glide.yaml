@@ -10,7 +10,7 @@ import:
 - package: github.com/oleiade/reflections
   version: ~1.0.0
 - package: github.com/pborman/uuid
-  version: ~1.0.0
+  version: ~1.1.0
 - package: github.com/pkg/errors
   version: ~0.8.0
 - package: golang.org/x/crypto
