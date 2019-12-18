@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/pkg/errors"
 	"net/url"
+
+	"github.com/coupa/foundation-go/metrics"
+	"github.com/pkg/errors"
 )
 
 // Implements
@@ -89,6 +91,7 @@ func (f *Fosite) NewAccessRequest(ctx context.Context, r *http.Request, session 
 					if err = f.Hasher.Compare(client.GetHashedSecret(), []byte(originalSecret)); err != nil {
 						return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
 					}
+					metrics.Increment("BasicAuth.Unescaped", map[string]string{"client_id": client.GetID()})
 				} else {
 					return accessRequest, errors.Wrap(ErrInvalidClient, err.Error())
 				}
