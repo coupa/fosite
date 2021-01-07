@@ -2,6 +2,7 @@ module github.com/ory/fosite
 
 require (
 	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535
+	github.com/coupa/foundation-go v1.2.2
 	github.com/dgraph-io/ristretto v0.0.3 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/elazarl/goproxy v0.0.0-20181003060214-f58a169a71a5 // indirect
@@ -27,6 +28,7 @@ require (
 	golang.org/x/text v0.3.3 // indirect
 	golang.org/x/tools v0.0.0-20200721223218-6123e77877b2 // indirect
 	google.golang.org/appengine v1.6.5 // indirect
+	gopkg.in/alexcesaro/statsd.v2 v2.0.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.5.1
 )
 

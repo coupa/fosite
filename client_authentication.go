@@ -31,6 +31,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/coupa/foundation-go/metrics"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/pkg/errors"
 	jose "gopkg.in/square/go-jose.v2"
@@ -206,14 +207,23 @@ func (f *Fosite) AuthenticateClient(ctx context.Context, r *http.Request, form u
 		return nil, errors.WithStack(ErrInvalidRequest.WithHintf("Unknown client_assertion_type \"%s\".", assertionType))
 	}
 
-	clientID, clientSecret, err := clientCredentialsFromRequest(r, form)
+	clientID, clientSecret, originalID, originalSecret, err := clientCredentialsFromRequest(r, form)
 	if err != nil {
-		return nil, err
+		if originalID == "" || originalSecret == "" {
+			return nil, err
+		}
+		//Here it means the error came from url unescaping the original id and secret
+		//Proceed with the originals
 	}
 
 	client, err := f.Store.GetClient(ctx, clientID)
 	if err != nil {
-		return nil, errors.WithStack(ErrInvalidClient.WithCause(err).WithDebug(err.Error()))
+		if clientID == originalID {
+			return nil, errors.WithStack(ErrInvalidClient.WithCause(err).WithDebug(err.Error()))
+		}
+		if client, err = f.Store.GetClient(ctx, originalID); err != nil {
+			return nil, errors.WithStack(ErrInvalidClient.WithCause(err).WithDebug(err.Error()))
+		}
 	}
 
 	if oidcClient, ok := client.(OpenIDConnectClient); !ok {
@@ -232,7 +242,13 @@ func (f *Fosite) AuthenticateClient(ctx context.Context, r *http.Request, form u
 
 	// Enforce client authentication
 	if err := f.Hasher.Compare(ctx, client.GetHashedSecret(), []byte(clientSecret)); err != nil {
-		return nil, errors.WithStack(ErrInvalidClient.WithCause(err).WithDebug(err.Error()))
+		if clientSecret == originalSecret {
+			return nil, errors.WithStack(ErrInvalidClient.WithCause(err).WithDebug(err.Error()))
+		}
+		if err = f.Hasher.Compare(ctx, client.GetHashedSecret(), []byte(originalSecret)); err != nil {
+			return nil, errors.WithStack(ErrInvalidClient.WithCause(err).WithDebug(err.Error()))
+		}
+		metrics.Increment("BasicAuth.Unescaped", map[string]string{"client_id": client.GetID()})
 	}
 
 	return client, nil
@@ -271,16 +287,21 @@ func findPublicKey(t *jwt.Token, set *jose.JSONWebKeySet, expectsRSAKey bool) (i
 	}
 }
 
-func clientCredentialsFromRequest(r *http.Request, form url.Values) (clientID, clientSecret string, err error) {
-	if id, secret, ok := r.BasicAuth(); !ok {
-		return clientCredentialsFromRequestBody(form, true)
-	} else if clientID, err = url.QueryUnescape(id); err != nil {
-		return "", "", errors.WithStack(ErrInvalidRequest.WithHint(`The client id in the HTTP authorization header could not be decoded from "application/x-www-form-urlencoded".`).WithCause(err).WithDebug(err.Error()))
-	} else if clientSecret, err = url.QueryUnescape(secret); err != nil {
-		return "", "", errors.WithStack(ErrInvalidRequest.WithHint(`The client secret in the HTTP authorization header could not be decoded from "application/x-www-form-urlencoded".`).WithCause(err).WithDebug(err.Error()))
+func clientCredentialsFromRequest(r *http.Request, form url.Values) (escapedID, escapedSecret, originalID, originalSecret string, err error) {
+	var ok bool
+	if originalID, originalSecret, ok = r.BasicAuth(); !ok {
+		originalID, originalSecret, err = clientCredentialsFromRequestBody(form, true)
+		escapedID = originalID
+		escapedSecret = originalSecret
+	} else if escapedID, err = url.QueryUnescape(originalID); err != nil {
+		//Return just the originals because there is no escaped ones
+		return originalID, originalSecret, originalID, originalSecret, errors.WithStack(ErrInvalidRequest.WithHint(`The client id in the HTTP authorization header could not be decoded from "application/x-www-form-urlencoded".`).WithCause(err).WithDebug(err.Error()))
+	} else if escapedSecret, err = url.QueryUnescape(originalSecret); err != nil {
+		//Return just the originals because there is no escaped ones
+		return originalID, originalSecret, originalID, originalSecret, errors.WithStack(ErrInvalidRequest.WithHint(`The client secret in the HTTP authorization header could not be decoded from "application/x-www-form-urlencoded".`).WithCause(err).WithDebug(err.Error()))
 	}
 
-	return clientID, clientSecret, nil
+	return
 }
 
 func clientCredentialsFromRequestBody(form url.Values, forceID bool) (clientID, clientSecret string, err error) {
