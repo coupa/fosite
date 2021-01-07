@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coupa/foundation-go/metrics"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -86,6 +87,10 @@ func clientBasicAuthHeader(clientID, clientSecret string) http.Header {
 }
 
 func TestAuthenticateClient(t *testing.T) {
+	factory := func() *metrics.Statsd {
+		return metrics.NewStatsd("", "", "", "", 1.0)
+	}
+	metrics.SetFactory(factory)
 	const at = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
 	hasher := &BCrypt{WorkFactor: 6}
@@ -222,18 +227,16 @@ func TestAuthenticateClient(t *testing.T) {
 			expectErr: ErrInvalidClient,
 		},
 		{
-			d:         "should fail because client id is not encoded using application/x-www-form-urlencoded",
-			client:    &DefaultOpenIDConnectClient{DefaultClient: &DefaultClient{ID: "foo", Secret: barSecret}, TokenEndpointAuthMethod: "client_secret_basic"},
-			form:      url.Values{},
-			r:         &http.Request{Header: http.Header{"Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte("%%%%%%:foo"))}}},
-			expectErr: ErrInvalidRequest,
+			d:      "should pass when client id is not encoded using application/x-www-form-urlencoded",
+			client: &DefaultOpenIDConnectClient{DefaultClient: &DefaultClient{ID: "%%%%%%", Secret: barSecret}, TokenEndpointAuthMethod: "client_secret_basic"},
+			form:   url.Values{},
+			r:      &http.Request{Header: http.Header{"Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte("%%%%%%:bar"))}}},
 		},
 		{
-			d:         "should fail because client secret is not encoded using application/x-www-form-urlencoded",
-			client:    &DefaultOpenIDConnectClient{DefaultClient: &DefaultClient{ID: "foo", Secret: barSecret}, TokenEndpointAuthMethod: "client_secret_basic"},
-			form:      url.Values{},
-			r:         &http.Request{Header: http.Header{"Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte("foo:%%%%%%%"))}}},
-			expectErr: ErrInvalidRequest,
+			d:      "should pass when client secret is not encoded using application/x-www-form-urlencoded",
+			client: &DefaultOpenIDConnectClient{DefaultClient: &DefaultClient{ID: "foo", Secret: complexSecret}, TokenEndpointAuthMethod: "client_secret_basic"},
+			form:   url.Values{},
+			r:      &http.Request{Header: http.Header{"Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte("foo:"+complexSecretRaw))}}},
 		},
 		{
 			d:         "should fail because client is confidential and id does not exist in header",
