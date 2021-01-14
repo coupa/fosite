@@ -26,7 +26,7 @@ package hmac
 
 import (
 	"crypto/hmac"
-	"crypto/sha512"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -168,8 +168,8 @@ func (c *HMACStrategy) Signature(token string) string {
 }
 
 func generateHMAC(data []byte, key *[32]byte) []byte {
-	h := hmac.New(sha512.New512_256, key[:])
-	// sha512.digest.Write() always returns nil for err, the panic should never happen
+	//Changed sha512 to sha256 for backward compatibility
+	h := hmac.New(sha256.New, key[:])
 	_, err := h.Write(data)
 	if err != nil {
 		panic(err)
